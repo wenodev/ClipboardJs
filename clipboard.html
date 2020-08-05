@@ -1,37 +1,166 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="X-UA-Compatible" content="ie=edge">
-    <title>Document</title>
+    <title>S3 파일 업로드 테스트</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/paginationjs/2.1.4/pagination.css" />
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/paginationjs/2.1.4/pagination.min.js"></script>
 </head>
+
 <body>
-    <p>Paste your image here..</p>
-   <img id="container"/>
+    <h1>파일 업로드</h1>
+    <hr>
 
-    <ul id="list"></ul>
+    <div class="drag-img">
+        <label for="fileselect">Files to upload:</label>
+        <input type="file" id="fileselect" name="files" multiple="multiple" />
+        <div id="filedrag" class="drop">or drop files here
+            <img id="container" />
 
-<script>
-document.onpaste = function(pasteEvent) {
-  // consider the first item (can be easily extended for multiple items)
-  var item = pasteEvent.clipboardData.items[0];
- 
-  if (item.type.indexOf("image") === 0) {
-    var blob = item.getAsFile();
-    var reader = new FileReader();
-    reader.onload = function(event) {
-    //   document.getElementById("container").src = event.target.result;
+            <div id="list"></div>
+            <div id="thumbnails"></div>
 
-    var temp1 = document.createElement('div');
-    temp1.innerHTML='<img src="' + event.target.result  + '">'
-    document.getElementById("list").append(temp1);
-    };
-    reader.readAsDataURL(blob);
+        </div>
+    </div>
 
-  }
-}
+
+
+    <button type="submit">등록하기</button>
+
+    <div id="messages">
+    </div>
+
+    <div id="app"></div>
+
+    <div>
+        <section>
+            <div id="data-container"></div>
+            <div id="pagination"></div>
+        </section>
+    </div>
+
+
+    <script src="filedrag.js"></script>
+    <!-- s3 이미지 불러오기 및 페이징 처리-->
+    <script>
+        $(function () {
+            viewAlbum("test", (result) => {
+                data = new Array();
+                for (var i = 0; i < result.length; i++) {
+                    data.push({ name: result[i] });
+                }
+                let container = $('#pagination');
+                container.pagination({
+                    dataSource: data,
+                    callback: function (data, pagination) {
+                        var dataHtml = '<ul>';
+                        $.each(data, function (index, item) {
+                            dataHtml += '<li>';
+                            dataHtml += '<img width="100px" height="200px;" src = "' + item.name + '">';
+                            dataHtml += item.name;
+                            dataHtml += '</li>';
+                        });
+                        dataHtml += '</ul>';
+                        $("#data-container").html(dataHtml);
+                    }
+                })
+            })
+        })
     </script>
 
+    <!-- copy & paste-->
+    <script>
+        document.onpaste = function (pasteEvent) {
+            // consider the first item (can be easily extended for multiple items)
+            var item = pasteEvent.clipboardData.items[0];
+
+            if (item.type.indexOf("image") === 0) {
+                var blob = item.getAsFile();
+                var reader = new FileReader();
+                reader.onload = function (event) {
+
+                    var temp1 = document.createElement('div');
+                    temp1.innerHTML = '<img src="' + event.target.result + '">'
+                    document.getElementById("list").appendChild(temp1);
+                };
+                reader.readAsDataURL(blob);
+
+            }
+        }
+    </script>
+
+    <!-- drag & drop -->
+    <script>
+        var uploadFiles = [];
+        var $drop = $(".drop");
+        $drop.on("dragenter", function (e) { //드래그 요소가 들어왔을떄
+            $(this).addClass('drag-over');
+        }).on("dragleave", function (e) { //드래그 요소가 나갔을때
+            $(this).removeClass('drag-over');
+        }).on("dragover", function (e) {
+            e.stopPropagation();
+            e.preventDefault();
+        }).on('drop', function (e) { //드래그한 항목을 떨어뜨렸을때
+            e.preventDefault();
+            $(this).removeClass('drag-over');
+            var files = e.originalEvent.dataTransfer.files; //드래그&드랍 항목
+            for (var i = 0; i < files.length; i++) {
+                var file = files[i];
+                var size = uploadFiles.push(file); //업로드 목록에 추가
+                preview(file, size - 1); //미리보기 만들기
+            }
+        });
+
+        function preview(file, idx) {
+            var reader = new FileReader();
+            reader.onload = (function (f, idx) {
+                return function (e) {
+
+                    var temp2 = document.createElement('div');
+
+                    //                     var div = '<div class="thumb"> \
+                    // <div class="close" data-idx="' + idx + '">X</div> \
+                    // <img src="' + e.target.result + '" title="' + escape(f.name) + '"/> \
+                    // </div>';
+
+
+                    temp2.innerHTML = '<img src="' + e.target.result + '" title="' + escape(f.name) + '"/> ';
+
+
+                    $("#list").append(temp2);
+                };
+            })(file, idx);
+            reader.readAsDataURL(file);
+        }
+
+        $("#btnSubmit").on("click", function () {
+            var formData = new FormData();
+            $.each(uploadFiles, function (i, file) {
+                if (file.upload != 'disable') //삭제하지 않은 이미지만 업로드 항목으로 추가
+                    formData.append('upload-file', file, file.name);
+            });
+            $.ajax({
+                url: '/api/etc/file/upload',
+                data: formData,
+                type: 'post',
+                contentType: false,
+                processData: false,
+                success: function (ret) {
+                    alert("완료");
+                }
+            });
+        });
+        $("#thumbnails").on("click", ".close", function (e) {
+            var $target = $(e.target);
+            var idx = $target.attr('data-idx');
+            uploadFiles[idx].upload = 'disable'; //삭제된 항목은 업로드하지 않기 위해 플래그 생성
+            $target.parent().remove(); //프리뷰 삭제
+        });
+    </script>
+
+
 </body>
+
 </html>
